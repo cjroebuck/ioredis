@@ -167,6 +167,7 @@ class Redis extends Commander {
    * be resolved when the connection status is ready.
    */
   connect(callback?: Callback<void>): Promise<void> {
+    debug("in connect", this._getDescription());
     const promise = new Promise<void>((resolve, reject) => {
       if (
         this.status === "connecting" ||
@@ -196,7 +197,13 @@ class Redis extends Commander {
           _this.silentEmit(type, err);
         }) as Promise<NetStream>,
         function (err: Error | null, stream?: NetStream) {
+          debug("in connector.connect callback", _this._getDescription());
           if (err) {
+            debug(
+              "got an error, flushQueue and reject",
+              err.message,
+              _this._getDescription()
+            );
             _this.flushQueue(err);
             _this.silentEmit("error", err);
             reject(err);
@@ -220,9 +227,12 @@ class Redis extends Commander {
 
           // Node ignores setKeepAlive before connect, therefore we wait for the event:
           // https://github.com/nodejs/node/issues/31663
-          if (typeof options.keepAlive === 'number') {
+          if (typeof options.keepAlive === "number") {
+            debug("set keepalive", options.keepAlive);
             if (stream.connecting) {
-              stream.once(CONNECT_EVENT, () => stream.setKeepAlive(true, options.keepAlive));
+              stream.once(CONNECT_EVENT, () =>
+                stream.setKeepAlive(true, options.keepAlive)
+              );
             } else {
               stream.setKeepAlive(true, options.keepAlive);
             }
@@ -232,6 +242,10 @@ class Redis extends Commander {
             stream.once(CONNECT_EVENT, eventHandler.connectHandler(_this));
 
             if (options.connectTimeout) {
+              debug(
+                "setting stream.timeout to connectTimeout",
+                options.connectTimeout
+              );
               /*
                * Typically, Socket#setTimeout(0) will clear the timer
                * set before. However, in some platforms (Electron 3.x~4.x),
@@ -241,12 +255,17 @@ class Redis extends Commander {
                */
               let connectTimeoutCleared = false;
               stream.setTimeout(options.connectTimeout, function () {
+                debug("In connectTimeout handler");
                 if (connectTimeoutCleared) {
+                  debug("return because connectTimeout already cleared");
                   return;
                 }
+                debug("-> set timeout to 0");
                 stream.setTimeout(0);
+                debug("destroy socket");
                 stream.destroy();
 
+                debug("create connect ETIMEDOUT error");
                 const err = new Error("connect ETIMEDOUT");
                 // @ts-expect-error
                 err.errorno = "ETIMEDOUT";
@@ -254,12 +273,23 @@ class Redis extends Commander {
                 err.code = "ETIMEDOUT";
                 // @ts-expect-error
                 err.syscall = "connect";
+                debug("call errorHandler with err");
                 eventHandler.errorHandler(_this)(err);
               });
+              stream.on("timeout", () => {
+                debug("in socket 'timeout' event");
+              });
               stream.once(CONNECT_EVENT, function () {
+                debug(
+                  "setting connectTimeoutCleared",
+                  true,
+                  "and socket.setTimeout(0)"
+                );
                 connectTimeoutCleared = true;
                 stream.setTimeout(0);
               });
+            } else {
+              debug("no options.connectTimeout!");
             }
           } else if (stream.destroyed) {
             const firstError = _this.connector.firstError;
@@ -344,7 +374,7 @@ class Redis extends Commander {
    * One of `"normal"`, `"subscriber"`, or `"monitor"`. When the connection is
    * not in `"normal"` mode, certain commands are not allowed.
    */
-   get mode(): "normal" | "subscriber" | "monitor" {
+  get mode(): "normal" | "subscriber" | "monitor" {
     return this.options.monitor
       ? "monitor"
       : this.condition.subscriber
@@ -568,6 +598,7 @@ class Redis extends Commander {
    * @ignore
    */
   silentEmit(eventName: string, arg?: unknown): boolean {
+    debug("in silentEmit", eventName);
     let error: unknown;
     if (eventName === "error") {
       error = arg;
@@ -594,6 +625,7 @@ class Redis extends Commander {
       return this.emit.apply(this, arguments);
     }
     if (error && error instanceof Error) {
+      debug("unhandled ioredis error", error.message);
       console.error("[ioredis] Unhandled error event:", error.stack);
     }
     return false;
@@ -775,6 +807,7 @@ class Redis extends Commander {
    * process commands.
    */
   private _readyCheck(callback: Callback) {
+    debug("in ready check");
     const _this = this;
     this.info(function (err, res) {
       if (err) {

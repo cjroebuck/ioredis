@@ -12,6 +12,7 @@ const debug = Debug("connection");
 
 export function connectHandler(self) {
   return function () {
+    debug("in connectHandler", self._getDescription());
     self.setStatus("connect");
 
     self.resetCommandQueue();
